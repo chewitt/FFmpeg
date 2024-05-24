@@ -24,6 +24,7 @@
 #include "hwconfig.h"
 #include "internal.h"
 
+#include "v4l2_fmt.h"
 #include "v4l2_request_hevc.h"
 
 #include "libavutil/hwcontext_drm.h"
@@ -57,7 +58,7 @@ static size_t bit_buf_size(unsigned int w, unsigned int h, unsigned int bits_min
     return bits_alloc;
 }
 
-static int v4l2_req_hevc_start_frame(AVCodecContext *avctx,
+int ff_v4l2_request_start_frame(AVCodecContext *avctx,
                                      av_unused const uint8_t *buffer,
                                      av_unused uint32_t size)
 {
@@ -66,35 +67,35 @@ static int v4l2_req_hevc_start_frame(AVCodecContext *avctx,
     return ctx->fns->start_frame(avctx, ctx, buffer, size);
 }
 
-static int v4l2_req_hevc_decode_slice(AVCodecContext *avctx, const uint8_t *buffer, uint32_t size)
+int ff_v4l2_request_decode_slice(AVCodecContext *avctx, const uint8_t *buffer, uint32_t size)
 {
     V4L2RequestPrivHEVC * const priv = avctx->internal->hwaccel_priv_data;
     V4L2RequestContextHEVC *const ctx = priv->cctx;
     return ctx->fns->decode_slice(avctx, ctx, buffer, size);
 }
 
-static int v4l2_req_hevc_end_frame(AVCodecContext *avctx)
+int ff_v4l2_request_end_frame(AVCodecContext *avctx)
 {
     V4L2RequestPrivHEVC * const priv = avctx->internal->hwaccel_priv_data;
     V4L2RequestContextHEVC *const ctx = priv->cctx;
     return ctx->fns->end_frame(avctx, ctx);
 }
 
-static void v4l2_req_hevc_abort_frame(AVCodecContext * const avctx)
+void ff_v4l2_request_abort_frame(AVCodecContext * const avctx)
 {
     V4L2RequestPrivHEVC * const priv = avctx->internal->hwaccel_priv_data;
     V4L2RequestContextHEVC *const ctx = priv->cctx;
     ctx->fns->abort_frame(avctx, ctx);
 }
 
-static int v4l2_req_hevc_frame_params(AVCodecContext *avctx, AVBufferRef *hw_frames_ctx)
+int ff_v4l2_request_frame_params(AVCodecContext *avctx, AVBufferRef *hw_frames_ctx)
 {
     V4L2RequestPrivHEVC * const priv = avctx->internal->hwaccel_priv_data;
     V4L2RequestContextHEVC *const ctx = priv->cctx;
     return ctx->fns->frame_params(avctx, ctx, hw_frames_ctx);
 }
 
-static int v4l2_req_hevc_alloc_frame(AVCodecContext * avctx, AVFrame *frame)
+int ff_v4l2_request_alloc_frame(AVCodecContext * avctx, AVFrame *frame)
 {
     V4L2RequestPrivHEVC * const priv = avctx->internal->hwaccel_priv_data;
     V4L2RequestContextHEVC *const ctx = priv->cctx;
@@ -107,6 +108,9 @@ cctx_free(void * v, uint8_t * data)
 {
     V4L2RequestContextHEVC *const ctx = (V4L2RequestContextHEVC *)data;
 
+    if (ctx->fns && ctx->fns->uninit)
+        ctx->fns->uninit(ctx);
+
     mediabufs_ctl_unref(&ctx->mbufs);
     media_pool_delete(&ctx->mpool);
     pollqueue_unref(&ctx->pq);
@@ -118,16 +122,18 @@ cctx_free(void * v, uint8_t * data)
     av_free(ctx);
 }
 
-static int v4l2_request_hevc_uninit(AVCodecContext *avctx)
+int ff_v4l2_request_uninit(AVCodecContext *avctx)
 {
     V4L2RequestPrivHEVC * const priv = avctx->internal->hwaccel_priv_data;
 
     av_log(avctx, AV_LOG_DEBUG, "<<< %s\n", __func__);
 
-//    decode_q_wait(&ctx->decode_q, NULL);  // Wait for all other threads to be out of decode
+    if (priv->cctx != NULL) {
+        decode_q_wait(&priv->cctx->decode_q, NULL);  // Wait for all other threads to be out of decode
 
-    priv->cctx = NULL;
-    av_buffer_unref(&priv->cctx_buf);
+        priv->cctx = NULL;
+        av_buffer_unref(&priv->cctx_buf);
+    }
 
 //    if (avctx->hw_frames_ctx) {
 //        AVHWFramesContext *hwfc = (AVHWFramesContext*)avctx->hw_frames_ctx->data;
@@ -138,53 +144,44 @@ static int v4l2_request_hevc_uninit(AVCodecContext *avctx)
 
 static int dst_fmt_accept_cb(void * v, const struct v4l2_fmtdesc *fmtdesc)
 {
-    AVCodecContext *const avctx = v;
-    const HEVCContext *const h = avctx->priv_data;
-    const HEVCPPS * const pps = h->pps;
-    const HEVCSPS * const sps = pps->sps;
+    const int bit_depth = *(int *)v;
 
-    if (sps->bit_depth == 8) {
-        if (fmtdesc->pixelformat == V4L2_PIX_FMT_NV12_COL128 ||
-            fmtdesc->pixelformat == V4L2_PIX_FMT_NV12_COL128M ||
-            fmtdesc->pixelformat == V4L2_PIX_FMT_NV12) {
-            return 1;
-        }
+    // SAND is currently confised as to whether it is s/w or hardware
+    // *** Current usage is probably wrong - it shouldn't be a h/w fmt
+    if (fmtdesc->pixelformat == V4L2_PIX_FMT_NV12_COL128 ||
+        fmtdesc->pixelformat == V4L2_PIX_FMT_NV12_COL128M) {
+        return bit_depth == 8;
     }
-    else if (h->ps.sps->bit_depth == 10) {
-        if (fmtdesc->pixelformat == V4L2_PIX_FMT_NV12_10_COL128 ||
-            fmtdesc->pixelformat == V4L2_PIX_FMT_NV12_10_COL128M) {
-            return 1;
-        }
+    if (fmtdesc->pixelformat == V4L2_PIX_FMT_NV12_10_COL128 ||
+        fmtdesc->pixelformat == V4L2_PIX_FMT_NV12_10_COL128M) {
+        return bit_depth == 10;
     }
-    return 0;
+    else {
+        const enum AVPixelFormat fmt = ff_v4l2_format_v4l2_to_avfmt(fmtdesc->pixelformat, AV_CODEC_ID_RAWVIDEO);
+        const AVPixFmtDescriptor * const desc = av_pix_fmt_desc_get(fmt);
+
+        if (fmt == AV_PIX_FMT_NONE || desc == NULL)
+            return 0;
+
+        return bit_depth == desc->comp[0].depth;
+    }
 }
 
-static int v4l2_request_hevc_init(AVCodecContext *avctx)
+int ff_v4l2_request_init(AVCodecContext *avctx,
+                         const struct v4l2_req_decode_fns * const * const try_fns,
+                         const int width, const int height, const int bit_depth,
+                         const int dst_buffers)
 {
-    const HEVCContext *h = avctx->priv_data;
     V4L2RequestPrivHEVC * const priv = avctx->internal->hwaccel_priv_data;
     V4L2RequestContextHEVC * ctx;
-    const HEVCPPS * const pps = h->pps;
-    const HEVCSPS * const sps = pps->sps;
     int ret;
     const struct decdev * decdev;
-    const uint32_t src_pix_fmt = V2(ff_v4l2_req_hevc, 4).src_pix_fmt_v4l2;  // Assuming constant for all APIs but avoiding V4L2 includes
+    const uint32_t src_pix_fmt = try_fns[0]->src_pix_fmt_v4l2;  // Assuming constant for all APIs but avoiding V4L2 includes
     size_t src_size;
     enum mediabufs_memory src_memtype;
     enum mediabufs_memory dst_memtype;
 
     av_log(avctx, AV_LOG_DEBUG, "<<< %s\n", __func__);
-
-    // Give up immediately if this is something that we have no code to deal with
-    if (sps->chroma_format_idc != 1) {
-        av_log(avctx, AV_LOG_WARNING, "chroma_format_idc(%d) != 1: Not implemented\n", sps->chroma_format_idc);
-        return AVERROR_PATCHWELCOME;
-    }
-    if (!(sps->bit_depth == 10 || sps->bit_depth == 8) ||
-        sps->bit_depth != sps->bit_depth_chroma) {
-        av_log(avctx, AV_LOG_WARNING, "Bit depth Y:%d C:%d: Not implemented\n", sps->bit_depth, sps->bit_depth_chroma);
-        return AVERROR_PATCHWELCOME;
-    }
 
     if ((ctx = av_mallocz(sizeof(*ctx))) == NULL) {
         av_log(avctx, AV_LOG_ERROR, "Unable to allocate context");
@@ -197,6 +194,8 @@ static int v4l2_request_hevc_init(AVCodecContext *avctx)
     }
     priv->cctx = ctx;
 
+    decode_q_init(&ctx->decode_q);
+
     if ((ret = devscan_build(avctx, &ctx->devscan)) != 0) {
         av_log(avctx, AV_LOG_WARNING, "Failed to find any V4L2 devices\n");
         ret = AVERROR(-ret);
@@ -206,7 +205,7 @@ static int v4l2_request_hevc_init(AVCodecContext *avctx)
 
     if ((decdev = devscan_find(ctx->devscan, src_pix_fmt)) == NULL)
     {
-        av_log(avctx, AV_LOG_WARNING, "Failed to find a V4L2 device for H265\n");
+        av_log(avctx, AV_LOG_WARNING, "Failed to find a device for %s\n", try_fns[0]->name);
         ret = AVERROR(ENODEV);
         goto fail0;
     }
@@ -251,7 +250,7 @@ static int v4l2_request_hevc_init(AVCodecContext *avctx)
     // We will realloc if we need more
     // Must use sps->h/w as avctx contains cropped size
 retry_src_memtype:
-    src_size = bit_buf_size(sps->width, sps->height, sps->bit_depth - 8);
+    src_size = bit_buf_size(width, height, bit_depth - 8);
     if (src_memtype == MEDIABUFS_MEMORY_DMABUF && mediabufs_src_resizable(ctx->mbufs))
         src_size /= 4;
     // Kludge for conformance tests which break Annex A limits
@@ -259,9 +258,9 @@ retry_src_memtype:
         src_size = 0x40000;
 
     if (mediabufs_src_fmt_set(ctx->mbufs, decdev_src_type(decdev), src_pix_fmt,
-                              sps->width, sps->height, src_size)) {
+                              width, height, src_size)) {
         char tbuf1[5];
-        av_log(avctx, AV_LOG_ERROR, "Failed to set source format: %s %dx%d\n", strfourcc(tbuf1, src_pix_fmt), sps->width, sps->height);
+        av_log(avctx, AV_LOG_ERROR, "Failed to set source format: %s %dx%d\n", strfourcc(tbuf1, src_pix_fmt), width, height);
         goto fail4;
     }
 
@@ -274,28 +273,19 @@ retry_src_memtype:
         goto fail4;
     }
 
-    if (V2(ff_v4l2_req_hevc, 4).probe(avctx, ctx) == 0)
-        ctx->fns = &V2(ff_v4l2_req_hevc, 4);
-#if CONFIG_V4L2_REQ_HEVC_VX
-    else if (V2(ff_v4l2_req_hevc, 3).probe(avctx, ctx) == 0)
-        ctx->fns = &V2(ff_v4l2_req_hevc, 3);
-    else if (V2(ff_v4l2_req_hevc, 2).probe(avctx, ctx) == 0)
-        ctx->fns = &V2(ff_v4l2_req_hevc, 2);
-    else if (V2(ff_v4l2_req_hevc, 1).probe(avctx, ctx) == 0)
-        ctx->fns = &V2(ff_v4l2_req_hevc, 1);
-#endif
-    else {
-        av_log(avctx, AV_LOG_ERROR, "No HEVC version probed successfully\n");
+    for (const struct v4l2_req_decode_fns * const * tf = try_fns; (ctx->fns = *tf) != NULL; ++tf)
+        if (ctx->fns->probe(avctx, ctx) == 0)
+            break;
+    if (ctx->fns == NULL) {
+        av_log(avctx, AV_LOG_ERROR, "No %s version probed successfully\n", try_fns[0]->name);
         ret = AVERROR(EINVAL);
         goto fail4;
     }
-
     av_log(avctx, AV_LOG_DEBUG, "%s probed successfully: driver v %#x\n",
            ctx->fns->name, mediabufs_ctl_driver_version(ctx->mbufs));
 
-    if (mediabufs_dst_fmt_set(ctx->mbufs, sps->width, sps->height, dst_fmt_accept_cb, avctx)) {
-        char tbuf1[5];
-        av_log(avctx, AV_LOG_ERROR, "Failed to set destination format: %s %dx%d\n", strfourcc(tbuf1, src_pix_fmt), sps->width, sps->height);
+    if (mediabufs_dst_fmt_set(ctx->mbufs, width, height, dst_fmt_accept_cb, (void*)&bit_depth)) {
+        av_log(avctx, AV_LOG_ERROR, "Failed to set destination format: %dx%d %dbit\n", width, height, bit_depth);
         goto fail4;
     }
 
@@ -305,10 +295,10 @@ retry_src_memtype:
     }
 
     {
-        unsigned int dst_slots = sps->temporal_layer[sps->max_sub_layers - 1].max_dec_pic_buffering +
+        unsigned int dst_slots = dst_buffers +
             avctx->thread_count + (avctx->extra_hw_frames > 0 ? avctx->extra_hw_frames : 6);
         av_log(avctx, AV_LOG_DEBUG, "Slots=%d: Reordering=%d, threads=%d, hw+=%d\n", dst_slots,
-               sps->temporal_layer[sps->max_sub_layers - 1].max_dec_pic_buffering,
+               dst_buffers,
                avctx->thread_count, avctx->extra_hw_frames);
 
         if (mediabufs_dst_chk_memtype(ctx->mbufs, dst_memtype)) {
@@ -342,8 +332,6 @@ retry_src_memtype:
         goto fail5;
     }
 
-    decode_q_init(&ctx->decode_q);
-
     // Set our s/w format
     avctx->sw_pix_fmt = ((AVHWFramesContext *)avctx->hw_frames_ctx->data)->sw_format;
 
@@ -367,8 +355,8 @@ fail0:
     return ret;
 }
 
-static int
-v4l2_request_update_thread_context(AVCodecContext *dst, const AVCodecContext *src)
+int
+ff_v4l2_request_update_thread_context(AVCodecContext *dst, const AVCodecContext *src)
 {
     V4L2RequestPrivHEVC * const spriv = src->internal->hwaccel_priv_data;
     V4L2RequestPrivHEVC * const dpriv = dst->internal->hwaccel_priv_data;
@@ -383,10 +371,40 @@ v4l2_request_update_thread_context(AVCodecContext *dst, const AVCodecContext *sr
     return 0;
 }
 
-static void
-v4l2_request_free_frame_priv(FFRefStructOpaque hwctx, void *data)
+void
+ff_v4l2_request_free_frame_priv(FFRefStructOpaque hwctx, void *data)
 {
-    fprintf(stderr, "%s\n", __func__);
+}
+
+static int v4l2_request_hevc_init(AVCodecContext *avctx)
+{
+    const HEVCContext *h = avctx->priv_data;
+    const HEVCPPS * const pps = h->pps;
+    const HEVCSPS * const sps = pps->sps;
+
+    const struct v4l2_req_decode_fns * const try_fns[] = {
+        &V2(ff_v4l2_req_hevc, 4),
+#if CONFIG_V4L2_REQ_HEVC_VX
+        &V2(ff_v4l2_req_hevc, 3),
+        &V2(ff_v4l2_req_hevc, 2),
+        &V2(ff_v4l2_req_hevc, 1),
+#endif
+        NULL
+    };
+
+    // Give up immediately if this is something that we have no code to deal with
+    if (sps->chroma_format_idc != 1) {
+        av_log(avctx, AV_LOG_WARNING, "chroma_format_idc(%d) != 1: Not implemented\n", sps->chroma_format_idc);
+        return AVERROR_PATCHWELCOME;
+    }
+    if (!(sps->bit_depth == 10 || sps->bit_depth == 8) ||
+        sps->bit_depth != sps->bit_depth_chroma) {
+        av_log(avctx, AV_LOG_WARNING, "Bit depth Y:%d C:%d: Not implemented\n", sps->bit_depth, sps->bit_depth_chroma);
+        return AVERROR_PATCHWELCOME;
+    }
+
+    return ff_v4l2_request_init(avctx, try_fns, sps->width, sps->height, sps->bit_depth,
+                             sps->temporal_layer[sps->max_sub_layers - 1].max_dec_pic_buffering);
 }
 
 const FFHWAccel ff_hevc_v4l2request_hwaccel = {
@@ -396,17 +414,17 @@ const FFHWAccel ff_hevc_v4l2request_hwaccel = {
         .id             = AV_CODEC_ID_HEVC,
         .pix_fmt        = AV_PIX_FMT_DRM_PRIME,
     },
-    .alloc_frame    = v4l2_req_hevc_alloc_frame,
-    .start_frame    = v4l2_req_hevc_start_frame,
-    .decode_slice   = v4l2_req_hevc_decode_slice,
-    .end_frame      = v4l2_req_hevc_end_frame,
-    .abort_frame    = v4l2_req_hevc_abort_frame,
+    .alloc_frame    = ff_v4l2_request_alloc_frame,
+    .start_frame    = ff_v4l2_request_start_frame,
+    .decode_slice   = ff_v4l2_request_decode_slice,
+    .end_frame      = ff_v4l2_request_end_frame,
+    .abort_frame    = ff_v4l2_request_abort_frame,
     .init           = v4l2_request_hevc_init,
-    .uninit         = v4l2_request_hevc_uninit,
-    .free_frame_priv = v4l2_request_free_frame_priv,
+    .uninit         = ff_v4l2_request_uninit,
+    .free_frame_priv = ff_v4l2_request_free_frame_priv,
     .frame_priv_data_size  = 128,
-    .update_thread_context = v4l2_request_update_thread_context,
+    .update_thread_context = ff_v4l2_request_update_thread_context,
     .priv_data_size = sizeof(V4L2RequestPrivHEVC),
-    .frame_params   = v4l2_req_hevc_frame_params,
+    .frame_params   = ff_v4l2_request_frame_params,
     .caps_internal  = HWACCEL_CAP_ASYNC_SAFE | HWACCEL_CAP_THREAD_SAFE,
 };

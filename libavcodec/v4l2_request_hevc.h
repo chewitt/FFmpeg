@@ -27,6 +27,8 @@
 
 #include <stdint.h>
 #include <drm_fourcc.h>
+
+#include "refstruct.h"
 #include "v4l2_req_decode_q.h"
 
 #ifndef DRM_FORMAT_NV15
@@ -105,11 +107,14 @@ typedef struct V4L2RequestContextHEVC {
     struct pollqueue *pq;
     struct media_pool * mpool;
     struct mediabufs_ctl *mbufs;
+
+    void * decode_ctx;
 } V4L2RequestContextHEVC;
 
 typedef struct V4L2RequestPrivHEVC {
     V4L2RequestContextHEVC * cctx;  // Common context
     AVBufferRef * cctx_buf;         // Buf for cctx
+    int bit_depth;
 } V4L2RequestPrivHEVC;
 
 typedef struct v4l2_req_decode_fns {
@@ -118,7 +123,11 @@ typedef struct v4l2_req_decode_fns {
 
     // Init setup
     int (*probe)(AVCodecContext * const avctx, V4L2RequestContextHEVC * const ctx);
+    // Set controls & any other init (e.g. decode_ctx)
     int (*set_controls)(AVCodecContext * const avctx, V4L2RequestContextHEVC * const ctx);
+
+    // Called on shutdown - avctx may not exist
+    void (*uninit)(V4L2RequestContextHEVC * const ctx);
 
     // Passthrough of hwaccel fns
     int (*start_frame)(AVCodecContext *avctx, V4L2RequestContextHEVC *const ctx, const uint8_t *buf, uint32_t buf_size);
@@ -129,6 +138,19 @@ typedef struct v4l2_req_decode_fns {
     int (*alloc_frame)(AVCodecContext * avctx, V4L2RequestContextHEVC *const ctx, AVFrame *frame);
 } v4l2_req_decode_fns;
 
+int ff_v4l2_request_start_frame(AVCodecContext *avctx, const uint8_t *buffer, uint32_t size);
+int ff_v4l2_request_decode_slice(AVCodecContext *avctx, const uint8_t *buffer, uint32_t size);
+int ff_v4l2_request_end_frame(AVCodecContext *avctx);
+void ff_v4l2_request_abort_frame(AVCodecContext * const avctx);
+int ff_v4l2_request_frame_params(AVCodecContext *avctx, AVBufferRef *hw_frames_ctx);
+int ff_v4l2_request_alloc_frame(AVCodecContext * avctx, AVFrame *frame);
+int ff_v4l2_request_init(AVCodecContext *avctx,
+                         const struct v4l2_req_decode_fns * const * const try_fns,
+                         const int width, const int height, const int bit_depth,
+                         const int dst_buffers);
+int ff_v4l2_request_uninit(AVCodecContext *avctx);
+int ff_v4l2_request_update_thread_context(AVCodecContext *dst, const AVCodecContext *src);
+void ff_v4l2_request_free_frame_priv(FFRefStructOpaque hwctx, void *data);
 
 extern const v4l2_req_decode_fns V2(ff_v4l2_req_hevc, 1);
 extern const v4l2_req_decode_fns V2(ff_v4l2_req_hevc, 2);
