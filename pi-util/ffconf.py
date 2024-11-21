@@ -243,7 +243,7 @@ if __name__ == '__main__':
     dectype = None
     if os.path.exists("/dev/rpivid-hevcmem"):
         dectype = hwaccel_rpi
-    if os.path.exists("/sys/module/rpivid_hevc"):
+    if args.drm or os.path.exists("/sys/module/rpivid_hevc") or os.path.exists("/sys/module/rpi_hevc_dec"):
         dectype = hwaccel_drm
 
     if args.pi4:
