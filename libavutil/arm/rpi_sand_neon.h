@@ -27,8 +27,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Authors: John Cox
 */
 
-#ifndef AVUTIL_ARM_SAND_NEON_H
-#define AVUTIL_ARM_SAND_NEON_H
+#ifndef AVUTIL_ARM_RPI_SAND_NEON_H
+#define AVUTIL_ARM_RPI_SAND_NEON_H
 
 void ff_rpi_sand128b_stripe_to_8_10(
   uint8_t * dest,             // [r0]

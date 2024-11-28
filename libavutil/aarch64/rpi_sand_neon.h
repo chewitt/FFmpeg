@@ -26,7 +26,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Authors: Michael Eiler <eiler.mike@gmail.com>
 */
 
-#pragma once
+#ifndef AVUTIL_AARCH64_RPI_SAND_NEON_H
+#define AVUTIL_AARCH64_RPI_SAND_NEON_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,3 +58,4 @@ void ff_rpi_sand30_lines_to_planar_y8(uint8_t * dest, unsigned int dst_stride,
 }
 #endif
 
+#endif /* AVCODEC_SAND_NEON_H */

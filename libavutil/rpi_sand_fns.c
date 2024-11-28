@@ -47,11 +47,11 @@ Authors: John Cox
 #endif
 
 #define PW 1
-#include "rpi_sand_fn_pw.h"
+#include "rpi_sand_fn_pw.c"
 #undef PW
 
 #define PW 2
-#include "rpi_sand_fn_pw.h"
+#include "rpi_sand_fn_pw.c"
 #undef PW
 
 #if 1

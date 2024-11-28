@@ -27,8 +27,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Authors: John Cox
 */
 
-#ifndef AVUTIL_RPI_SAND_FNS
-#define AVUTIL_RPI_SAND_FNS
+#ifndef AVUTIL_RPI_SAND_FNS_H
+#define AVUTIL_RPI_SAND_FNS_H
 
 #include "libavutil/frame.h"
 
