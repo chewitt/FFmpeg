@@ -22,8 +22,8 @@ e.h
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _MEDIA_H_
-#define _MEDIA_H_
+#ifndef AVCODEC_V4L2_REQ_MEDIA_H
+#define AVCODEC_V4L2_REQ_MEDIA_H
 
 #include <stdbool.h>
 #include <stdint.h>
