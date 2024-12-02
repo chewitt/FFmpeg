@@ -21,10 +21,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "config.h"
+
 #include <linux/videodev2.h>
 #include <sys/ioctl.h>
 #include <search.h>
-#include <drm_fourcc.h>
 
 #include "encode.h"
 #include "libavcodec/avcodec.h"
@@ -41,6 +42,9 @@
 #define MPEG_CID(x) V4L2_CID_MPEG_VIDEO_##x
 #define MPEG_VIDEO(x) V4L2_MPEG_VIDEO_##x
 
+#if CONFIG_LIBDRM
+#include <drm_fourcc.h>
+
 // P030 should be defined in drm_fourcc.h and hopefully will be sometime
 // in the future but until then...
 #ifndef DRM_FORMAT_P030
@@ -53,6 +57,8 @@
 
 #ifndef DRM_FORMAT_NV20
 #define DRM_FORMAT_NV20 fourcc_code('N', 'V', '2', '0')
+#endif
+
 #endif
 
 #ifndef V4L2_CID_CODEC_BASE
@@ -303,6 +309,9 @@ static int v4l2_prepare_encoder(V4L2m2mContext *s)
 
 static int avdrm_to_v4l2(struct v4l2_format * const format, const AVFrame * const frame)
 {
+#if !CONFIG_LIBDRM
+    return AVERROR_OPTION_NOT_FOUND;
+#else
     const AVDRMFrameDescriptor *const src = (const AVDRMFrameDescriptor *)frame->data[0];
 
     const uint32_t drm_fmt = src->layers[0].format;
@@ -386,6 +395,7 @@ static int avdrm_to_v4l2(struct v4l2_format * const format, const AVFrame * cons
     }
 
     return 0;
+#endif
 }
 
 // Do we have similar enough formats to be usable?
