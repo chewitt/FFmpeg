@@ -21,7 +21,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <drm_fourcc.h>
+#include "config.h"
 #include <linux/videodev2.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -39,6 +39,10 @@
 #include "v4l2_m2m.h"
 #include "v4l2_req_dmabufs.h"
 #include "weak_link.h"
+
+#if CONFIG_LIBDRM
+#include <drm_fourcc.h>
+#endif
 
 #define USEC_PER_SEC 1000000
 static const AVRational v4l2_timebase = { 1, USEC_PER_SEC };
@@ -442,6 +446,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         frame->flags & ~AV_FRAME_FLAG_KEY;
 }
 
+#if CONFIG_LIBDRM
 static uint8_t * v4l2_get_drm_frame(V4L2Buffer *avbuf)
 {
     AVDRMFrameDescriptor *drm_desc = &avbuf->drm_frame;
@@ -546,6 +551,7 @@ static uint8_t * v4l2_get_drm_frame(V4L2Buffer *avbuf)
 
     return (uint8_t *) drm_desc;
 }
+#endif
 
 static void v4l2_free_bufref(void *opaque, uint8_t *data)
 {
@@ -628,7 +634,11 @@ static int v4l2_buffer_export_drm(V4L2Buffer* avbuf)
 
         avbuf->drm_frame.objects[i].size = blen;
         avbuf->drm_frame.objects[i].fd = dma_fd;
+#if !CONFIG_LIBDRM
+        avbuf->drm_frame.objects[i].format_modifier = 0;
+#else
         avbuf->drm_frame.objects[i].format_modifier = DRM_FORMAT_MOD_LINEAR;
+#endif
     }
 
     return 0;
@@ -684,6 +694,9 @@ static int v4l2_buffer_buf_to_swframe(AVFrame *frame, V4L2Buffer *avbuf)
         return AVERROR(ENOMEM);
 
     if (buf_to_m2mctx(avbuf)->output_drm) {
+#if !CONFIG_LIBDRM
+        return AVERROR_OPTION_NOT_FOUND;
+#else
         /* 1. get references to the actual data */
         const int rv = ff_v4l2_context_frames_set(avbuf->context);
         if (rv != 0)
@@ -693,6 +706,7 @@ static int v4l2_buffer_buf_to_swframe(AVFrame *frame, V4L2Buffer *avbuf)
         frame->format = AV_PIX_FMT_DRM_PRIME;
         frame->hw_frames_ctx = av_buffer_ref(avbuf->context->frames_ref);
         return 0;
+#endif
     }
 
 
