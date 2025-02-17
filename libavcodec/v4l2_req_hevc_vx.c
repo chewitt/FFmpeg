@@ -29,6 +29,7 @@
 #include "hwconfig.h"
 #include "internal.h"
 #include "thread.h"
+#include "v4l2_fmt.h"
 
 #include "libavutil/mem.h"
 
@@ -133,12 +134,9 @@ struct req_controls {
 // Get an FFmpeg format from the v4l2 format
 static enum AVPixelFormat pixel_format_from_format(const struct v4l2_format *const format)
 {
-    switch (V4L2_TYPE_IS_MULTIPLANAR(format->type) ?
-            format->fmt.pix_mp.pixelformat : format->fmt.pix.pixelformat) {
-    case V4L2_PIX_FMT_YUV420:
-        return AV_PIX_FMT_YUV420P;
-    case V4L2_PIX_FMT_NV12:
-        return AV_PIX_FMT_NV12;
+    const uint32_t vfmt = V4L2_TYPE_IS_MULTIPLANAR(format->type) ?
+            format->fmt.pix_mp.pixelformat : format->fmt.pix.pixelformat;
+    switch (vfmt) {
 #if CONFIG_SAND
     case V4L2_PIX_FMT_NV12_COL128:
     case V4L2_PIX_FMT_NV12_COL128M:
@@ -150,7 +148,7 @@ static enum AVPixelFormat pixel_format_from_format(const struct v4l2_format *con
     default:
         break;
     }
-    return AV_PIX_FMT_NONE;
+    return ff_v4l2_format_v4l2_to_avfmt(vfmt, AV_CODEC_ID_RAWVIDEO);
 }
 
 static inline uint64_t frame_capture_dpb(const AVFrame * const frame)
@@ -778,6 +776,9 @@ static int drm_from_format(AVDRMFrameDescriptor * const desc, const struct v4l2_
     switch (pixelformat) {
     case V4L2_PIX_FMT_NV12:
         layer->format = DRM_FORMAT_NV12;
+        break;
+    case V4L2_PIX_FMT_P010:
+        layer->format = DRM_FORMAT_P010;
         break;
 #if CONFIG_SAND
     case V4L2_PIX_FMT_NV12_COL128:
