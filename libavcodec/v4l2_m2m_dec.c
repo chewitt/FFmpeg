@@ -967,7 +967,17 @@ get_quirks(AVCodecContext * const avctx, V4L2m2mContext * const s)
     // capture to clear the event even if the capture buffers were the right
     // size in the first place.
     if (strcmp(cap.driver, "meson-vdec") == 0)
-        s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS | FF_V4L2_QUIRK_ENUM_FRAMESIZES_BROKEN;
+        switch (avctx->codec_id) {
+            case AV_CODEC_ID_H264:
+            case AV_CODEC_ID_HEVC:
+            case AV_CODEC_ID_VP9:
+                s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS |
+                             FF_V4L2_QUIRK_ENUM_FRAMESIZES_BROKEN;
+                break;
+            default:
+                s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS;
+                break;
+        }
 
     av_log(avctx, AV_LOG_DEBUG, "Driver '%s': Quirks=%#x\n", cap.driver, s->quirks);
     return 0;
