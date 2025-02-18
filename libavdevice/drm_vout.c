@@ -40,7 +40,7 @@
 
 #define TRACE_ALL 0
 
-#define DRM_MODULE "vc4"
+#define DRM_MODULE "meson"
 
 #define ERRSTR strerror(errno)
 
