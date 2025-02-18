@@ -1388,6 +1388,8 @@ static const AVCodecHWConfigInternal *v4l2_m2m_hw_configs[] = {
         .p.pix_fmts     = (const enum AVPixelFormat[]) { AV_PIX_FMT_DRM_PRIME, \
                                                          AV_PIX_FMT_NV12, \
                                                          AV_PIX_FMT_YUV420P, \
+                                                         AV_PIX_FMT_YU08, \
+                                                         AV_PIX_FMT_YU10, \
                                                          AV_PIX_FMT_NONE}, \
         .hw_configs     = v4l2_m2m_hw_configs, \
     }

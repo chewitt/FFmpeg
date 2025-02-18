@@ -42,6 +42,38 @@
 
 #if CONFIG_LIBDRM
 #include <drm_fourcc.h>
+
+typedef struct format_modifier_map {
+        enum AVPixelFormat format;
+        uint64_t modifier;
+} format_modifier_map;
+
+static const format_modifier_map formats_modifier[] = {
+#ifdef DRM_FORMAT_MOD_AMLOGIC_FBC
+    { AV_PIX_FMT_YU08, DRM_FORMAT_MOD_AMLOGIC_FBC(
+                       AMLOGIC_FBC_LAYOUT_BASIC |
+                       AMLOGIC_FBC_LAYOUT_SCATTER |
+                       AMLOGIC_FBC_OPTION_MEM_SAVING,
+                       V4L2_PIX_FMT_YUV420_8BIT)
+    },
+    { AV_PIX_FMT_YU10, DRM_FORMAT_MOD_AMLOGIC_FBC(
+                       AMLOGIC_FBC_LAYOUT_BASIC |
+                       AMLOGIC_FBC_LAYOUT_SCATTER |
+                       AMLOGIC_FBC_OPTION_MEM_SAVING,
+                       V4L2_PIX_FMT_YUV420_10BIT)
+    },
+#endif
+};
+
+static uint64_t get_format_modifier(enum AVPixelFormat format) {
+    int i;
+
+    for (i = 0; i < FF_ARRAY_ELEMS(formats_modifier); ++i)
+        if (formats_modifier[i].format == format)
+	    return formats_modifier[i].modifier;
+
+    return DRM_FORMAT_MOD_LINEAR;
+}
 #endif
 
 #define USEC_PER_SEC 1000000
@@ -544,6 +576,16 @@ static uint8_t * v4l2_get_drm_frame(V4L2Buffer *avbuf)
         layer->planes[2].pitch = avbuf->plane_info[0].bytesperline >> 1;
         break;
 
+    case AV_PIX_FMT_YU08:
+        layer->format = DRM_FORMAT_YUV420_8BIT;
+        layer->nb_planes = 1;
+        break;
+
+    case AV_PIX_FMT_YU10:
+        layer->format = DRM_FORMAT_YUV420_10BIT;
+        layer->nb_planes = 1;
+        break;
+
     default:
         drm_desc->nb_layers = 0;
         break;
@@ -637,7 +679,7 @@ static int v4l2_buffer_export_drm(V4L2Buffer* avbuf)
 #if !CONFIG_LIBDRM
         avbuf->drm_frame.objects[i].format_modifier = 0;
 #else
-        avbuf->drm_frame.objects[i].format_modifier = DRM_FORMAT_MOD_LINEAR;
+        avbuf->drm_frame.objects[i].format_modifier = formats_modifier[i].modifier;
 #endif
     }
 

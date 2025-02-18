@@ -1986,6 +1986,12 @@ static const AVPixFmtDescriptor av_pix_fmt_descriptors[AV_PIX_FMT_NB] = {
        },
         .flags = AV_PIX_FMT_FLAG_XYZ | AV_PIX_FMT_FLAG_BE,
     },
+    [AV_PIX_FMT_YU08] = {
+        .name = "yu08",
+    },
+    [AV_PIX_FMT_YU10] = {
+        .name = "yu10",
+    },
 
 #define BAYER8_DESC_COMMON \
         .nb_components= 3, \

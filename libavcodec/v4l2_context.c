@@ -37,6 +37,45 @@
 #include "v4l2_m2m.h"
 #include "weak_link.h"
 
+struct v4l2_plane_ext_pix_format {
+       __u32 sizeimage;
+       __u32 bytesperline;
+};
+
+struct v4l2_ext_pix_format {
+       __u32 width;
+       __u32 height;
+       __u32 field;
+       __u32 pixelformat;
+       __u64 modifier;
+       __u32 colorspace;
+       __u32 num_planes;
+       struct v4l2_plane_ext_pix_format plane_fmt[VIDEO_MAX_PLANES];
+       __u8 flags;
+       union {
+               __u8 ycbcr_enc;
+               __u8 hsv_enc;
+       };
+       __u8 quantization;
+       __u8 xfer_func;
+};
+
+struct v4l2_ext_format {
+       __u32 type;
+       union {
+               struct v4l2_ext_pix_format pix;
+               struct v4l2_vbi_format vbi;
+               struct v4l2_sliced_vbi_format sliced;
+               struct v4l2_sdr_format sdr;
+               struct v4l2_meta_format meta;
+               __u8 raw_data[200];
+       } fmt;
+};
+
+#define VIDIOC_G_EXT_FMT       _IOWR('V', 104, struct v4l2_ext_format)
+#define VIDIOC_S_EXT_FMT       _IOWR('V', 105, struct v4l2_ext_format)
+#define VIDIOC_TRY_EXT_FMT     _IOWR('V', 106, struct v4l2_ext_format)
+
 struct v4l2_format_update {
     uint32_t v4l2_fmt;
     int update_v4l2;

@@ -68,6 +68,11 @@ typedef struct V4L2Context {
     struct v4l2_format format;
 
     /**
+     * Optional DRM modifier tied to the format
+     */
+    uint64_t modifier;
+
+    /**
      * Width and height of the frames it produces (in case of a capture context, e.g. when decoding)
      * or accepts (in case of an output context, e.g. when encoding).
      */
