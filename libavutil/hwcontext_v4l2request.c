@@ -58,6 +58,34 @@ typedef struct V4L2RequestFrameDescriptor {
     int fd[AV_DRM_MAX_PLANES];
 } V4L2RequestFrameDescriptor;
 
+#ifndef DRM_FORMAT_NV15
+#define DRM_FORMAT_NV15         fourcc_code('N', 'V', '1', '5')
+#endif
+
+#ifndef DRM_FORMAT_NV20
+#define DRM_FORMAT_NV20         fourcc_code('N', 'V', '2', '0')
+#endif
+
+#ifndef DRM_FORMAT_P010
+#define DRM_FORMAT_P010         fourcc_code('P', '0', '1', '0')
+#endif
+
+#ifndef V4L2_PIX_FMT_NV12_32L32
+#define V4L2_PIX_FMT_NV12_32L32 v4l2_fourcc('S', 'T', '1', '2')
+#endif
+
+#ifndef V4L2_PIX_FMT_NV15
+#define V4L2_PIX_FMT_NV15       v4l2_fourcc('N', 'V', '1', '5')
+#endif
+
+#ifndef V4L2_PIX_FMT_NV20
+#define V4L2_PIX_FMT_NV20       v4l2_fourcc('N', 'V', '2', '0')
+#endif
+
+#ifndef V4L2_PIX_FMT_P010
+#define V4L2_PIX_FMT_P010       v4l2_fourcc('P', '0', '1', '0')
+#endif
+
 static const struct {
     uint32_t pixelformat;
     enum AVPixelFormat sw_format;
