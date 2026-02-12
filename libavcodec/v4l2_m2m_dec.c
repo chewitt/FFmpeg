@@ -1112,7 +1112,7 @@ parse_extradata(AVCodecContext * const avctx, V4L2m2mContext * const s)
             ret = ff_hevc_decode_extradata(avctx->extradata, avctx->extradata_size,
                                            &ps, &sei, &is_nalff, &nal_length_size,
                                            avctx->err_recognition, 0, avctx);
-            if (ret > 0) {
+            if (ret >= 0) {
                 const HEVCSPS * sps = NULL;
                 unsigned int i;
                 for (i = 0; i != HEVC_MAX_SPS_COUNT; ++i) {
