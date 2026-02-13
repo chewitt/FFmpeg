@@ -1097,6 +1097,47 @@ static uint32_t max_coded_size(const AVCodecContext * const avctx)
     return size + (1 << 16);
 }
 
+// Check if MPEG2 extradata indicates a chroma format incompatible with 4:2:0
+// capture buffers. Returns 0 if OK (4:2:0 or indeterminate), negative if the
+// chroma format (4:2:2 / 4:4:4) cannot be decoded to 4:2:0 output.
+static int check_mpeg2_chroma(AVCodecContext *avctx)
+{
+    const uint8_t *p, *end;
+
+    if (avctx->codec_id != AV_CODEC_ID_MPEG2VIDEO)
+        return 0;
+    if (!avctx->extradata || avctx->extradata_size < 6)
+        return 0;
+
+    p = avctx->extradata;
+    end = p + avctx->extradata_size - 5;
+
+    // Scan for sequence_extension_start_code (0x000001B5 with ext_id == 1)
+    while (p < end) {
+        if (p[0] == 0x00 && p[1] == 0x00 && p[2] == 0x01 && p[3] == 0xB5) {
+            unsigned int ext_id = (p[4] >> 4) & 0xf;
+            if (ext_id == 1) {
+                // Sequence extension: p[5] bits [2:1] = chroma_format
+                // 1 = 4:2:0, 2 = 4:2:2, 3 = 4:4:4
+                unsigned int chroma_format = (p[5] >> 1) & 0x3;
+                if (chroma_format != 1) {
+                    av_log(avctx, AV_LOG_INFO,
+                           "MPEG2 chroma_format %u (%s) not supported by V4L2 M2M decoder\n",
+                           chroma_format,
+                           chroma_format == 2 ? "4:2:2" :
+                           chroma_format == 3 ? "4:4:4" : "reserved");
+                    return AVERROR(EINVAL);
+                }
+                return 0;
+            }
+        }
+        p++;
+    }
+
+    // No sequence extension found - assume 4:2:0
+    return 0;
+}
+
 static void
 parse_extradata(AVCodecContext * const avctx, V4L2m2mContext * const s)
 {
@@ -1280,6 +1321,10 @@ static av_cold int v4l2_decode_init(AVCodecContext *avctx)
         return ret;
 
     parse_extradata(avctx, s);
+
+    // Reject MPEG2 4:2:2/4:4:4 streams that cannot be decoded to 4:2:0 output
+    if ((ret = check_mpeg2_chroma(avctx)) != 0)
+        return ret;
 
     xlat_init(&s->xlat);
     pts_stats_init(&s->pts_stat, avctx, "decoder");
