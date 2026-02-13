@@ -43,6 +43,15 @@
 
 #if CONFIG_LIBDRM
 #include <drm_fourcc.h>
+#ifndef DRM_FORMAT_YUV420_8BIT
+#define DRM_FORMAT_YUV420_8BIT fourcc_code('Y', 'U', '0', '8')
+#endif
+#ifndef DRM_FORMAT_YUV420_10BIT
+#define DRM_FORMAT_YUV420_10BIT fourcc_code('Y', 'U', '1', '0')
+#endif
+#ifndef DRM_FORMAT_P010
+#define DRM_FORMAT_P010 fourcc_code('P', '0', '1', '0')
+#endif
 #endif
 
 #define USEC_PER_SEC 1000000
@@ -475,6 +484,16 @@ static uint8_t * v4l2_get_drm_frame(V4L2Buffer *avbuf)
     case AV_PIX_FMT_NV12:
     case AV_PIX_FMT_NV21:
 
+        if (buf_to_m2mctx(avbuf)->format_modifier) {
+            const V4L2m2mContext *s = buf_to_m2mctx(avbuf);
+            layer->format = (s->avctx->bits_per_raw_sample > 8 ||
+                             s->avctx->profile == 2 /* Main 10 */) ?
+                DRM_FORMAT_YUV420_10BIT : DRM_FORMAT_YUV420_8BIT;
+            drm_desc->nb_objects = 1;
+            layer->nb_planes = 1;
+            break;
+        }
+
         layer->format = avbuf->context->av_pix_fmt == AV_PIX_FMT_NV12 ?
             DRM_FORMAT_NV12 : DRM_FORMAT_NV21;
 
@@ -490,6 +509,13 @@ static uint8_t * v4l2_get_drm_frame(V4L2Buffer *avbuf)
         break;
 
     case AV_PIX_FMT_YUV420P:
+
+        if (buf_to_m2mctx(avbuf)->format_modifier) {
+            layer->format = DRM_FORMAT_YUV420_8BIT;
+            drm_desc->nb_objects = 1;
+            layer->nb_planes = 1;
+            break;
+        }
 
         layer->format = DRM_FORMAT_YUV420;
 
@@ -508,6 +534,28 @@ static uint8_t * v4l2_get_drm_frame(V4L2Buffer *avbuf)
             ((avbuf->plane_info[0].bytesperline *
               avbuf->context->format.fmt.pix.height) >> 2);
         layer->planes[2].pitch = avbuf->plane_info[0].bytesperline >> 1;
+        break;
+
+    case AV_PIX_FMT_P010LE:
+
+        if (buf_to_m2mctx(avbuf)->format_modifier) {
+            layer->format = DRM_FORMAT_YUV420_10BIT;
+            drm_desc->nb_objects = 1;
+            layer->nb_planes = 1;
+            break;
+        }
+
+        layer->format = DRM_FORMAT_P010;
+
+        if (avbuf->num_planes > 1)
+            break;
+
+        layer->nb_planes = 2;
+
+        layer->planes[1].object_index = 0;
+        layer->planes[1].offset = avbuf->plane_info[0].bytesperline *
+            avbuf->context->format.fmt.pix.height;
+        layer->planes[1].pitch = avbuf->plane_info[0].bytesperline;
         break;
 
     default:
@@ -600,11 +648,7 @@ static int v4l2_buffer_export_drm(V4L2Buffer* avbuf)
 
         avbuf->drm_frame.objects[i].size = blen;
         avbuf->drm_frame.objects[i].fd = dma_fd;
-#if !CONFIG_LIBDRM
-        avbuf->drm_frame.objects[i].format_modifier = 0;
-#else
-        avbuf->drm_frame.objects[i].format_modifier = DRM_FORMAT_MOD_LINEAR;
-#endif
+        avbuf->drm_frame.objects[i].format_modifier = s->format_modifier;
     }
 
     return 0;

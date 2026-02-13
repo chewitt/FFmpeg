@@ -125,6 +125,10 @@ typedef struct V4L2m2mContext {
     /* Quirks */
     unsigned int quirks;
 
+    /* DRM format modifier for capture buffers (0 = DRM_FORMAT_MOD_LINEAR).
+     * Set during driver quirk detection for drivers with non-linear output. */
+    uint64_t format_modifier;
+
     struct dmabufs_ctl * db_ctl;
 } V4L2m2mContext;
 

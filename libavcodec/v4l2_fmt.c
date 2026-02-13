@@ -82,6 +82,12 @@ static const struct fmt_conversion {
 #ifdef V4L2_PIX_FMT_NV16M
     { AV_FMT(NV16),        AV_CODEC(RAWVIDEO),    V4L2_FMT(NV16M) },
 #endif
+#ifdef V4L2_PIX_FMT_P010
+    { AV_FMT(P010LE),      AV_CODEC(RAWVIDEO),    V4L2_FMT(P010) },
+#endif
+#ifdef V4L2_PIX_FMT_P010M
+    { AV_FMT(P010LE),      AV_CODEC(RAWVIDEO),    V4L2_FMT(P010M) },
+#endif
 #ifdef V4L2_PIX_FMT_H263
     { AV_FMT(NONE),        AV_CODEC(H263),        V4L2_FMT(H263) },
 #endif
