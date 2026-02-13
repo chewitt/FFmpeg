@@ -1056,14 +1056,8 @@ get_quirks(AVCodecContext * const avctx, V4L2m2mContext * const s)
     // size in the first place.
     if (strcmp(cap.driver, "meson-vdec") == 0) {
         switch (avctx->codec_id) {
-            case AV_CODEC_ID_H264:
-            case AV_CODEC_ID_VP9:
-                s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS |
-                             FF_V4L2_QUIRK_ENUM_FRAMESIZES_BROKEN;
-                break;
             case AV_CODEC_ID_HEVC:
-                s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS |
-                             FF_V4L2_QUIRK_ENUM_FRAMESIZES_BROKEN;
+                s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS;
 #if CONFIG_LIBDRM
                 s->format_modifier = DRM_FORMAT_MOD_AMLOGIC_FBC(
                     AMLOGIC_FBC_LAYOUT_BASIC, 0);
