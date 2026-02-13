@@ -46,32 +46,6 @@
 #include "v4l2_fmt.h"
 #include "v4l2_req_dmabufs.h"
 
-#if CONFIG_LIBDRM
-#include <drm_fourcc.h>
-#ifndef DRM_FORMAT_MOD_VENDOR_AMLOGIC
-#define DRM_FORMAT_MOD_VENDOR_AMLOGIC 0x0a
-#endif
-#ifndef DRM_FORMAT_MOD_AMLOGIC_FBC
-#define __fourcc_mod_amlogic_layout_mask 0xff
-#define __fourcc_mod_amlogic_options_shift 8
-#define __fourcc_mod_amlogic_options_mask 0xff
-#define DRM_FORMAT_MOD_AMLOGIC_FBC(__layout, __options) \
-    fourcc_mod_code(AMLOGIC, \
-            ((__layout) & __fourcc_mod_amlogic_layout_mask) | \
-            (((__options) & __fourcc_mod_amlogic_options_mask) \
-             << __fourcc_mod_amlogic_options_shift))
-#endif
-#ifndef AMLOGIC_FBC_LAYOUT_BASIC
-#define AMLOGIC_FBC_LAYOUT_BASIC          (1ULL)
-#endif
-#ifndef AMLOGIC_FBC_LAYOUT_SCATTER
-#define AMLOGIC_FBC_LAYOUT_SCATTER        (2ULL)
-#endif
-#ifndef AMLOGIC_FBC_OPTION_MEM_SAVING
-#define AMLOGIC_FBC_OPTION_MEM_SAVING     (1ULL << 0)
-#endif
-#endif
-
 #if CONFIG_H264_DECODER
 #include "h264_parse.h"
 #endif
@@ -1054,29 +1028,8 @@ get_quirks(AVCodecContext * const avctx, V4L2m2mContext * const s)
     // streamon and userspace must (re)allocate capture buffers and streamon
     // capture to clear the event even if the capture buffers were the right
     // size in the first place.
-    if (strcmp(cap.driver, "meson-vdec") == 0) {
-        switch (avctx->codec_id) {
-            case AV_CODEC_ID_H264:
-            case AV_CODEC_ID_VP9:
-                s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS |
-                             FF_V4L2_QUIRK_ENUM_FRAMESIZES_BROKEN;
-                break;
-            case AV_CODEC_ID_HEVC:
-                s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS |
-                             FF_V4L2_QUIRK_ENUM_FRAMESIZES_BROKEN;
-#if CONFIG_LIBDRM
-                s->format_modifier = DRM_FORMAT_MOD_AMLOGIC_FBC(
-                    AMLOGIC_FBC_LAYOUT_BASIC, 0);
-                av_log(avctx, AV_LOG_DEBUG,
-                       "meson-vdec: Amlogic FBC modifier %#"PRIx64"\n",
-                       s->format_modifier);
-#endif
-                break;
-            default:
-                s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS;
-                break;
-        }
-    }
+    if (strcmp(cap.driver, "meson-vdec") == 0)
+        s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS | FF_V4L2_QUIRK_ENUM_FRAMESIZES_BROKEN;
     // RPI has a max 8192 macroblock limit but no way of signaling it
     if (strcmp(cap.driver, "bcm2835-codec") == 0)
         s->quirks |= FF_V4L2_QUIRK_8192_MACRO_MAX;
