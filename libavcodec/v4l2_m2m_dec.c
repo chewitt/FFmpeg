@@ -1029,7 +1029,7 @@ get_quirks(AVCodecContext * const avctx, V4L2m2mContext * const s)
     // capture to clear the event even if the capture buffers were the right
     // size in the first place.
     if (strcmp(cap.driver, "meson-vdec") == 0)
-        s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS;
+        s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS | FF_V4L2_QUIRK_ENUM_FRAMESIZES_BROKEN;
     // RPI has a max 8192 macroblock limit but no way of signaling it
     if (strcmp(cap.driver, "bcm2835-codec") == 0)
         s->quirks |= FF_V4L2_QUIRK_8192_MACRO_MAX;
