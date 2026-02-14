@@ -1332,14 +1332,16 @@ static av_cold int v4l2_decode_init(AVCodecContext *avctx)
     capture = &s->capture;
     output = &s->output;
 
-    /* if these dimensions are invalid (ie, 0 or too small) an event will be raised
-     * by the v4l2 driver; this event will trigger a full pipeline reconfig and
-     * the proper values will be retrieved from the kernel driver.
+    /* Pass coded dimensions to the driver so it can set up initial canvas
+     * buffers at the correct size.  Some drivers (e.g. meson-vdec MPEG1/2)
+     * need a valid resolution hint to decode the first frames and generate
+     * a SOURCE_CHANGE event; sending 0x0 causes them to use a minimum size
+     * that is too small for the actual stream, stalling the decoder.
+     * The QUIRK_REINIT_ALWAYS path still handles any runtime resolution
+     * changes via the SOURCE_CHANGE event.
      */
-//    output->height = capture->height = avctx->coded_height;
-//    output->width = capture->width = avctx->coded_width;
-    output->height = capture->height = 0;
-    output->width = capture->width = 0;
+    output->height = capture->height = avctx->coded_height;
+    output->width = capture->width = avctx->coded_width;
 
     output->av_codec_id = avctx->codec_id;
     output->av_pix_fmt  = AV_PIX_FMT_NONE;
