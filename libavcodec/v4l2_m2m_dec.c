@@ -1060,7 +1060,8 @@ get_quirks(AVCodecContext * const avctx, V4L2m2mContext * const s)
                 s->quirks |= FF_V4L2_QUIRK_REINIT_ALWAYS;
 #if CONFIG_LIBDRM
                 s->format_modifier = DRM_FORMAT_MOD_AMLOGIC_FBC(
-                    AMLOGIC_FBC_LAYOUT_BASIC, 0);
+                    AMLOGIC_FBC_LAYOUT_SCATTER,
+                    AMLOGIC_FBC_OPTION_MEM_SAVING);
                 av_log(avctx, AV_LOG_DEBUG,
                        "meson-vdec: Amlogic FBC modifier %#"PRIx64"\n",
                        s->format_modifier);
