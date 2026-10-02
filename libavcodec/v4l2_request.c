@@ -162,6 +162,11 @@ static int v4l2_request_queue_capture_buffer(V4L2RequestContext *ctx,
         .type = ctx->fctxi->capture.format.type,
         .memory = V4L2_MEMORY_MMAP,
     };
+
+    if (ctx->fctxi->capture.capabilities & V4L2_BUF_CAP_SUPPORTS_MMAP_CACHE_HINTS)
+        buffer.flags = V4L2_BUF_FLAG_NO_CACHE_CLEAN |
+                       V4L2_BUF_FLAG_NO_CACHE_INVALIDATE;
+
     return v4l2_request_queue_buffer(ctx, &buffer);
 }
 

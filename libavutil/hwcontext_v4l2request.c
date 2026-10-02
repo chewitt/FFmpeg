@@ -855,6 +855,10 @@ static AVBufferRef *v4l2request_v4l2_buffer_alloc(AVHWFramesContext *hwfc,
     buffer = (struct v4l2_buffer *)ref->data;
     buffer->type = format->type;
 
+    if (format == &fctxi->capture.format &&
+        (fctxi->capture.capabilities & V4L2_BUF_CAP_SUPPORTS_MMAP_CACHE_HINTS))
+        buffers.flags = V4L2_MEMORY_FLAG_NON_COHERENT;
+
     if (num_planes) {
         buffer->length = num_planes;
         buffer->m.planes = (struct v4l2_plane *)(buffer + 1);
