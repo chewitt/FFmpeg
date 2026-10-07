@@ -814,11 +814,15 @@ static int deint_v4l2m2m_dequeue(AVFilterContext *avctx, AVFrame *input_frame)
 
     if (ctx->prev_in_frame && ctx->prev_in_frame->pts != AV_NOPTS_VALUE
        && input_frame->pts != AV_NOPTS_VALUE) {
-      first_pts = (ctx->prev_in_frame->pts + input_frame->pts) / 2;
+      first_pts = ctx->prev_in_frame->pts + input_frame->pts;
       av_log(priv, AV_LOG_DEBUG, "calculated first pts %"PRId64"\n", first_pts);
     }
 
     output_frame_1->pts = first_pts;
+    output_frame_1->time_base = outlink->time_base;
+    if (input_frame->pts != AV_NOPTS_VALUE)
+        output_frame_2->pts = input_frame->pts * 2;
+    output_frame_2->time_base = outlink->time_base;
 
     err = ff_filter_frame(outlink, output_frame_1);
     if (err < 0) {
