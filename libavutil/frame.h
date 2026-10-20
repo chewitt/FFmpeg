@@ -196,7 +196,8 @@ enum AVFrameSideDataType {
     /**
      * Dolby Vision RPU raw data, suitable for passing to x265
      * or other libraries. Array of uint8_t, with NAL emulation
-     * bytes intact.
+     * bytes intact. For AV1 the buffer instead holds the source Dolby Vision
+     * ITU-T T.35 payload, including its country code and provider header.
      */
     AV_FRAME_DATA_DOVI_RPU_BUFFER,
 

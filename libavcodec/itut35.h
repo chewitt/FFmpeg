@@ -65,6 +65,7 @@ typedef struct FFITUTT35Meta {
     AVBufferRef *hdr_smpte2094_app5;
     AVBufferRef *hdr_vivid;
     AVBufferRef *dovi;
+    AVBufferRef *dovi_raw; // optional AV1 source T.35 bytes, never a decode dependency
     AVFilmGrainAFGS1Params aom_film_grain;
 } FFITUTT35Meta;
 

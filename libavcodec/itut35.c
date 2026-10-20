@@ -31,6 +31,34 @@
 #include "itut35.h"
 #include "version.h"
 
+// Retain already validated source syntax at the native metadata owner.
+// Allocation/side-data failure only omits diagnostics; decoding is unchanged.
+static AVBufferRef *itut_t35_dovi_raw(const FFITUTT35 *itut_t35)
+{
+    static const uint8_t header[] = { 0xB5, 0x00, 0x3B, 0x00, 0x00, 0x08, 0x00 };
+    AVBufferRef *raw;
+    if (itut_t35->country_code != 0xB5 || itut_t35->provider_code != 0x003B ||
+        itut_t35->provider_oriented_code != 0x800 || !itut_t35->payload ||
+        !itut_t35->payload_size || itut_t35->payload_size > 1024 * 1024 - sizeof(header))
+        return NULL;
+    raw = av_buffer_alloc(sizeof(header) + itut_t35->payload_size);
+    if (raw) {
+        memcpy(raw->data, header, sizeof(header));
+        memcpy(raw->data + sizeof(header), itut_t35->payload, itut_t35->payload_size);
+    }
+    return raw;
+}
+
+static void itut_t35_attach_dovi_raw(FFITUTT35Meta *metadata, AVFrame *frame)
+{
+    if (metadata->dovi_raw) {
+        if (!av_frame_new_side_data_from_buf(frame, AV_FRAME_DATA_DOVI_RPU_BUFFER,
+                                              metadata->dovi_raw))
+            av_buffer_unref(&metadata->dovi_raw);
+        metadata->dovi_raw = NULL;
+    }
+}
+
 int ff_itut_t35_parse_buffer(FFITUTT35 *const itut_t35, const uint8_t *buf,
                              size_t buf_size, int flags) {
     GetByteContext gb;
@@ -240,6 +268,9 @@ int ff_itut_t35_parse_payload_to_struct(FFITUTT35 *const itut_t35, FFITUTT35Aux 
                 return AVERROR(ENOMEM);
             }
 
+            av_buffer_unref(&metadata->dovi_raw);
+            metadata->dovi_raw = itut_t35_dovi_raw(itut_t35);
+
             break;
         }
         case ITU_T_T35_PROVIDER_CODE_SMPTE: {
@@ -359,10 +390,14 @@ int ff_itut_t35_parse_payload_to_frame(FFITUTT35 *const itut_t35, FFITUTT35Aux *
                                                               metadata.dovi);
         if (!sd) {
             av_buffer_unref(&metadata.dovi);
+            av_buffer_unref(&metadata.dovi_raw);
             return AVERROR(ENOMEM);
         }
         metadata.dovi = NULL;
     }
+
+    if (avctx->codec_id == AV_CODEC_ID_AV1)
+        itut_t35_attach_dovi_raw(&metadata, frame);
 
     if (metadata.hdr_smpte2094_app5) {
         ret = ff_frame_new_side_data_from_buf(avctx, frame, AV_FRAME_DATA_DYNAMIC_HDR_SMPTE_2094_APP5,
@@ -399,5 +434,6 @@ void ff_itut_t35_unref(FFITUTT35Meta *metadata)
     av_buffer_unref(&metadata->hdr_smpte2094_app5);
     av_buffer_unref(&metadata->lcevc);
     av_buffer_unref(&metadata->dovi);
+    av_buffer_unref(&metadata->dovi_raw);
     av_buffer_unref(&metadata->hdr_vivid);
 }
