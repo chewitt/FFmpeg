@@ -2507,6 +2507,16 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
                 struct StreamGroup *stg;
                 int gi;
 
+                /* Profile 7 EL is HEVC even when carried as private PES. */
+                if (stream_type == STREAM_TYPE_PRIVATE_DATA &&
+                    st->codecpar->codec_id == AV_CODEC_ID_BIN_DATA) {
+                    st->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
+                    st->codecpar->codec_id = AV_CODEC_ID_HEVC;
+                    sti->need_context_update = 1;
+                    sti->need_parsing = AVSTREAM_PARSE_FULL;
+                    sti->request_probe = 0;
+                }
+
                 if (!p)
                     break;
 
