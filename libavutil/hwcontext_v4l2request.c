@@ -53,6 +53,18 @@
 #define V4L2_PIX_FMT_MESON_AM21B v4l2_fourcc('A', 'M', '2', 'B')
 #endif
 
+/*
+ * Rockchip vdec AFBC capture formats: YUV 4:2:0 with 16x16 superblocks, no
+ * block split and packed superblock bodies.
+ */
+#ifndef V4L2_PIX_FMT_YUV420_8_AFBC_16X16
+#define V4L2_PIX_FMT_YUV420_8_AFBC_16X16 v4l2_fourcc('A', 'F', '1', '2')
+#endif
+
+#ifndef V4L2_PIX_FMT_YUV420_10_AFBC_16X16
+#define V4L2_PIX_FMT_YUV420_10_AFBC_16X16 v4l2_fourcc('A', 'F', '0', '1')
+#endif
+
 typedef struct V4L2RequestVideoDecoder {
     dev_t media_dev;
     dev_t video_dev;
@@ -129,6 +141,20 @@ static const struct {
         .bit_depth = 10,
     },
 #endif
+    {
+        .pixelformat = V4L2_PIX_FMT_YUV420_8_AFBC_16X16,
+        .sw_format = AV_PIX_FMT_YUV420P,
+        .drm_format = DRM_FORMAT_YUV420_8BIT,
+        .format_modifier = DRM_FORMAT_MOD_ARM_AFBC(AFBC_FORMAT_MOD_BLOCK_SIZE_16x16),
+        .bit_depth = 8,
+    },
+    {
+        .pixelformat = V4L2_PIX_FMT_YUV420_10_AFBC_16X16,
+        .sw_format = AV_PIX_FMT_YUV420P10,
+        .drm_format = DRM_FORMAT_YUV420_10BIT,
+        .format_modifier = DRM_FORMAT_MOD_ARM_AFBC(AFBC_FORMAT_MOD_BLOCK_SIZE_16x16),
+        .bit_depth = 10,
+    },
     /*
      * Amlogic FBC uses one fourcc for both depths, so it needs an entry per
      * bit depth - the DRM format and the modifier options differ.
