@@ -56,6 +56,12 @@ struct AVV4L2RequestFramesContextInternal {
         uint32_t capabilities;
 
         /**
+         * Lines between the top of the buffer and the picture, from the
+         * CAPTURE compose rectangle.
+         */
+        uint32_t top;
+
+        /**
         * Buffer pool of allocated V4L2 buffers.
         *
         * AVBufferRef.data points to a struct v4l2_buffer for the created buffer.

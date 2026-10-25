@@ -522,6 +522,10 @@ static int v4l2_request_post_process(void *logctx, AVFrame *frame)
         av_log(logctx, AV_LOG_ERROR, "driver decode error\n");
         frame->decode_error_flags |= FF_DECODE_ERROR_INVALID_BITSTREAM;
     }
+
+    // Export lines above the picture in the buffer as top cropping
+    frame->crop_top += ctx->fctxi->capture.top;
+    frame->height += ctx->fctxi->capture.top;
     return 0;
 }
 

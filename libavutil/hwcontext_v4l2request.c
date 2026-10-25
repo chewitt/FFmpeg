@@ -520,6 +520,7 @@ static int v4l2request_probe_video_device(AVHWFramesContext *hwfc,
     AVV4L2RequestFramesContextInternal *fctxi = fctx->internal;
     struct v4l2_capability capability;
     struct v4l2_create_buffers buffers;
+    struct v4l2_selection selection;
     unsigned int capabilities;
     int ret;
 
@@ -667,6 +668,16 @@ static int v4l2request_probe_video_device(AVHWFramesContext *hwfc,
                strerror(errno), errno);
         goto fail;
     }
+
+    // The picture may start below the top of the CAPTURE buffer
+    selection = (struct v4l2_selection) {
+        .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+        .target = V4L2_SEL_TGT_COMPOSE,
+    };
+    fctxi->capture.top = 0;
+    if (ioctl(fctxi->video_fd, VIDIOC_G_SELECTION, &selection) >= 0 &&
+        selection.r.top > 0)
+        fctxi->capture.top = selection.r.top;
 
     // All tests passed, video device should be capable
     return 0;
