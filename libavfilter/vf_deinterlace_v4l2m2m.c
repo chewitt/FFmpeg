@@ -262,7 +262,7 @@ static int deint_v4l2m2m_try_format(V4L2Queue *queue, uint64_t drm_format)
 
     return 0;
 }
-static int deint_v4l2m2m_set_format(V4L2Queue *queue, uint32_t field, int width, int height, uint64_t drm_format)
+static int deint_v4l2m2m_set_format(V4L2Queue *queue, uint32_t field, int width, int height, int bytesperline, uint64_t drm_format)
 {
     struct v4l2_format *fmt        = &queue->format;
     DeintV4L2M2MContextShared *ctx = queue->ctx;
@@ -284,7 +284,7 @@ static int deint_v4l2m2m_set_format(V4L2Queue *queue, uint32_t field, int width,
         fmt->fmt.pix_mp.height = height;
         fmt->fmt.pix_mp.num_planes = planes;
         for (int i = 0; i < planes; i++) {
-            fmt->fmt.pix_mp.plane_fmt[i].bytesperline = width;
+            fmt->fmt.pix_mp.plane_fmt[i].bytesperline = bytesperline;
             fmt->fmt.pix_mp.plane_fmt[i].sizeimage = 0;
         }
     } else {
@@ -293,12 +293,23 @@ static int deint_v4l2m2m_set_format(V4L2Queue *queue, uint32_t field, int width,
         fmt->fmt.pix.width = width;
         fmt->fmt.pix.height = height;
         fmt->fmt.pix.sizeimage = 0;
-        fmt->fmt.pix.bytesperline = 0;
+        fmt->fmt.pix.bytesperline = bytesperline;
     }
 
     ret = ioctl(ctx->fd, VIDIOC_S_FMT, fmt);
     if (ret)
         av_log(NULL, AV_LOG_ERROR, "VIDIOC_S_FMT failed: %d\n", ret);
+
+    else if (V4L2_TYPE_IS_OUTPUT(fmt->type) &&
+             (V4L2_TYPE_IS_MULTIPLANAR(fmt->type) ?
+              (fmt->fmt.pix_mp.height != height ||
+               fmt->fmt.pix_mp.plane_fmt[0].bytesperline != bytesperline) :
+              (fmt->fmt.pix.height != height ||
+               fmt->fmt.pix.bytesperline != bytesperline))) {
+        av_log(NULL, AV_LOG_ERROR, "driver does not support input height %d stride %d\n",
+               height, bytesperline);
+        ret = AVERROR(EINVAL);
+    }
 
     else if (!V4L2_TYPE_IS_OUTPUT(queue->format.type)) {
         if (V4L2_TYPE_IS_MULTIPLANAR(fmt->type) && fmt->fmt.pix_mp.pixelformat != v4l2_pix_fmt) {
@@ -924,13 +935,14 @@ static int deint_v4l2m2m_filter_frame(AVFilterLink *link, AVFrame *in)
             ctx->field_order = V4L2_FIELD_INTERLACED_BT;
 
         ret = deint_v4l2m2m_set_format(output, ctx->field_order,
-                                       ctx->orig_width, ctx->orig_height,
+                                       ctx->width, ctx->orig_height,
+                                       ctx->orig_width,
                                        ctx->drm_in_format);
         if (ret)
             return ret;
 
 	ret = deint_v4l2m2m_set_format(capture, V4L2_FIELD_NONE,
-	                               ctx->orig_width, ctx->orig_height,
+	                               ctx->width, ctx->orig_height, 0,
 	                               ctx->drm_out_format);
         if (ret)
             return ret;
