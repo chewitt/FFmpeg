@@ -19,6 +19,7 @@
 #include "config.h"
 
 #include <fcntl.h>
+#include <string.h>
 #include <linux/dma-buf.h>
 #include <linux/media.h>
 #include <sys/ioctl.h>
@@ -33,6 +34,23 @@
 #include "hwcontext_internal.h"
 #include "hwcontext_v4l2request_internal.h"
 #include "mem.h"
+
+/*
+ * MediaTek modifiers, from the kernel's drm_fourcc.h; older libdrm copies
+ * (2.4.124 in Debian trixie) lack them, which would compile MM21 out.
+ */
+#ifndef DRM_FORMAT_MOD_VENDOR_MTK
+#define DRM_FORMAT_MOD_VENDOR_MTK 0x0b
+#endif
+#ifndef DRM_FORMAT_MOD_MTK
+#define DRM_FORMAT_MOD_MTK(__flags) fourcc_mod_code(MTK, __flags)
+#define MTK_FMT_MOD_TILE_16L32S 0x1
+#define MTK_FMT_MOD_10BIT_LAYOUT_LSBTILED (0x1 << 16)
+#define MTK_FMT_MOD_10BIT_LAYOUT_LSBRASTER (0x2 << 16)
+#endif
+#ifndef DRM_FORMAT_MOD_MTK_16L_32S_TILE
+#define DRM_FORMAT_MOD_MTK_16L_32S_TILE DRM_FORMAT_MOD_MTK(MTK_FMT_MOD_TILE_16L32S)
+#endif
 
 /*
  * Amlogic vdec zero-copy capture format: a single plane carrying the
@@ -195,6 +213,31 @@ static const struct {
     { V4L2_PIX_FMT_NV12_10_COL128, AV_PIX_FMT_YUV420P10, DRM_FORMAT_P030, DRM_FORMAT_MOD_BROADCOM_SAND128, 10 },
 #endif
 #endif
+#if defined(V4L2_PIX_FMT_MM21) && defined(DRM_FORMAT_MOD_MTK_16L_32S_TILE)
+    { V4L2_PIX_FMT_MM21, AV_PIX_FMT_YUV420P, DRM_FORMAT_NV12, DRM_FORMAT_MOD_MTK_16L_32S_TILE, 8 },
+#endif
+#if defined(V4L2_PIX_FMT_MT2110T) && defined(DRM_FORMAT_NV15) && \
+    defined(MTK_FMT_MOD_TILE_16L32S) && defined(MTK_FMT_MOD_10BIT_LAYOUT_LSBTILED)
+    {
+        .pixelformat = V4L2_PIX_FMT_MT2110T,
+        .sw_format = AV_PIX_FMT_YUV420P10,
+        .drm_format = DRM_FORMAT_NV15,
+        .format_modifier = DRM_FORMAT_MOD_MTK(MTK_FMT_MOD_TILE_16L32S |
+                                              MTK_FMT_MOD_10BIT_LAYOUT_LSBTILED),
+        .bit_depth = 10,
+    },
+#endif
+#if defined(V4L2_PIX_FMT_MT2110R) && defined(DRM_FORMAT_NV15) && \
+    defined(MTK_FMT_MOD_TILE_16L32S) && defined(MTK_FMT_MOD_10BIT_LAYOUT_LSBRASTER)
+    {
+        .pixelformat = V4L2_PIX_FMT_MT2110R,
+        .sw_format = AV_PIX_FMT_YUV420P10,
+        .drm_format = DRM_FORMAT_NV15,
+        .format_modifier = DRM_FORMAT_MOD_MTK(MTK_FMT_MOD_TILE_16L32S |
+                                              MTK_FMT_MOD_10BIT_LAYOUT_LSBRASTER),
+        .bit_depth = 10,
+    },
+#endif
 };
 
 /*
@@ -322,6 +365,25 @@ static int v4l2request_set_drm_descriptor(AVDRMFrameDescriptor *desc,
         if (pixelformat == V4L2_PIX_FMT_NV12_10_COL128)
             layer->planes[0].pitch *= 2;
         layer->planes[1].pitch = layer->planes[0].pitch;
+    }
+#endif
+
+#if defined(V4L2_PIX_FMT_MM21)
+    // MediaTek formats store the chroma plane in a separate memory plane
+    if (pixelformat == V4L2_PIX_FMT_MM21 && desc->nb_objects >= 2) {
+        layer->planes[1].object_index = 1;
+        layer->planes[1].offset = 0;
+        layer->planes[1].pitch = format->fmt.pix_mp.plane_fmt[1].bytesperline;
+    }
+#endif
+
+#if defined(V4L2_PIX_FMT_MT2110T) && defined(V4L2_PIX_FMT_MT2110R)
+    // MediaTek formats store the chroma plane in a separate memory plane
+    if ((pixelformat == V4L2_PIX_FMT_MT2110T ||
+         pixelformat == V4L2_PIX_FMT_MT2110R) && desc->nb_objects >= 2) {
+        layer->planes[1].object_index = 1;
+        layer->planes[1].offset = 0;
+        layer->planes[1].pitch = format->fmt.pix_mp.plane_fmt[1].bytesperline;
     }
 #endif
 
@@ -457,8 +519,11 @@ static int v4l2request_try_framesize(AVHWFramesContext *hwfc,
             return 0;
         } else if ((frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE ||
                     frmsize.type == V4L2_FRMSIZE_TYPE_CONTINUOUS) &&
-                   hwfc->width >= frmsize.stepwise.min_width &&
-                   hwfc->height >= frmsize.stepwise.min_height &&
+                   /*
+                    * Below the minimum, S_FMT rounds the buffers up and the
+                    * smaller frame still decodes into them; only the maximum
+                    * is a hard limit.
+                    */
                    hwfc->width <= frmsize.stepwise.max_width &&
                    hwfc->height <= frmsize.stepwise.max_height) {
             return 0;
@@ -1223,6 +1288,150 @@ fail:
     return ret;
 }
 
+#if defined(V4L2_PIX_FMT_MM21) && defined(DRM_FORMAT_MOD_MTK_16L_32S_TILE)
+/*
+ * MediaTek MM21: NV12 in 16x32 luma / 16x16 chroma tiles, each tile stored as
+ * contiguous 16 byte rows, tiles laid out row major across the plane pitch.
+ * Neither the display nor anything in libavutil reads it, so detile on the CPU
+ * for hwdownload (checksums, fluster); the display path uses the MDP3 instead.
+ */
+static int v4l2request_is_mm21(AVHWFramesContext *hwfc)
+{
+    AVV4L2RequestFramesContext *fctx = hwfc->hwctx;
+    const struct v4l2_format *fmt = &fctx->internal->capture.format;
+
+    return V4L2_TYPE_IS_MULTIPLANAR(fmt->type) &&
+           fmt->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_MM21;
+}
+
+static void v4l2request_detile_mm21_plane(uint8_t *dst, int dst_linesize,
+                                          const uint8_t *src, int src_pitch,
+                                          int width, int height, int tile_h)
+{
+    const int tile_size = 16 * tile_h;
+
+    for (int y = 0; y < height; y++) {
+        const uint8_t *row = src + (y / tile_h) * src_pitch * tile_h +
+                             (y % tile_h) * 16;
+        uint8_t *out = dst + y * dst_linesize;
+
+        for (int x = 0; x < width; x += 16)
+            memcpy(out + x, row + (x / 16) * tile_size, FFMIN(16, width - x));
+    }
+}
+
+static int v4l2request_transfer_mm21(AVHWFramesContext *hwfc,
+                                     AVFrame *dst, const AVFrame *src)
+{
+    const AVDRMFrameDescriptor *desc = (AVDRMFrameDescriptor *)src->data[0];
+    const AVDRMLayerDescriptor *layer = &desc->layers[0];
+    AVFrame *map;
+    int ret;
+
+    if (desc->nb_layers != 1 || layer->nb_planes != 2 ||
+        desc->objects[0].format_modifier != DRM_FORMAT_MOD_MTK_16L_32S_TILE)
+        return AVERROR(EINVAL);
+
+    map = av_frame_alloc();
+    if (!map)
+        return AVERROR(ENOMEM);
+
+    ret = v4l2request_map_frame(hwfc, map, src);
+    if (ret)
+        goto fail;
+
+    v4l2request_detile_mm21_plane(dst->data[0], dst->linesize[0],
+                                  map->data[0], map->linesize[0],
+                                  dst->width, dst->height, 32);
+    v4l2request_detile_mm21_plane(dst->data[1], dst->linesize[1],
+                                  map->data[1], map->linesize[1],
+                                  FFALIGN(dst->width, 2), (dst->height + 1) / 2, 16);
+fail:
+    av_frame_free(&map);
+    return ret;
+}
+#endif
+
+#if defined(V4L2_PIX_FMT_MT2110T) && defined(V4L2_PIX_FMT_MT2110R)
+/*
+ * MediaTek MT2110T/MT2110R: 10-bit NV12 in the MM21 tile grid (16x32 luma,
+ * 16x16 chroma tiles; 640/320 bytes per tile). Each tile is split into
+ * partitions of 4 rows x 16 bytes: 16 bytes holding the low 2 bits, then 64
+ * bytes holding the high 8 bits. T and R differ in how the low bits are
+ * packed: T keeps one byte per column (row in bits 2*row), R one byte per
+ * 4 columns of a row (column in bits 2*(col%4)).
+ */
+static uint32_t v4l2request_mt2110_pixelformat(AVHWFramesContext *hwfc)
+{
+    AVV4L2RequestFramesContext *fctx = hwfc->hwctx;
+    const struct v4l2_format *fmt = &fctx->internal->capture.format;
+
+    if (!V4L2_TYPE_IS_MULTIPLANAR(fmt->type))
+        return 0;
+    if (fmt->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_MT2110T ||
+        fmt->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_MT2110R)
+        return fmt->fmt.pix_mp.pixelformat;
+    return 0;
+}
+
+static void v4l2request_detile_mt2110_plane(uint8_t *dst, int dst_linesize,
+                                            const uint8_t *src, int pitch,
+                                            int width, int height,
+                                            int tile_h, int raster)
+{
+    const int tile_size = 16 * tile_h * 10 / 8;
+    const int x_tiles = pitch / 16;
+
+    for (int y = 0; y < height; y++) {
+        const int part = (y % tile_h) / 4, line = y % 4;
+        const uint8_t *row = src + (size_t)(y / tile_h) * x_tiles * tile_size + part * 80;
+        uint16_t *out = (uint16_t *)(dst + (size_t)y * dst_linesize);
+
+        for (int x = 0; x < width; x += 16) {
+            const uint8_t *t = row + (x / 16) * tile_size;
+            const int n = FFMIN(16, width - x);
+
+            for (int i = 0; i < n; i++) {
+                const int lo = raster ? (t[line * 4 + i / 4] >> ((i % 4) * 2)) & 3
+                                      : (t[i] >> (line * 2)) & 3;
+                out[x + i] = ((t[16 + line * 16 + i] << 2) | lo) << 6;
+            }
+        }
+    }
+}
+
+static int v4l2request_transfer_mt2110(AVHWFramesContext *hwfc, AVFrame *dst,
+                                       const AVFrame *src, int raster)
+{
+    const AVDRMFrameDescriptor *desc = (AVDRMFrameDescriptor *)src->data[0];
+    AVV4L2RequestFramesContext *fctx = hwfc->hwctx;
+    const struct v4l2_format *fmt = &fctx->internal->capture.format;
+    const int pitch = fmt->fmt.pix_mp.plane_fmt[0].bytesperline;
+    AVFrame *map;
+    int ret;
+
+    if (desc->nb_layers != 1 || desc->layers[0].nb_planes != 2 || pitch < 16)
+        return AVERROR(EINVAL);
+
+    map = av_frame_alloc();
+    if (!map)
+        return AVERROR(ENOMEM);
+
+    ret = v4l2request_map_frame(hwfc, map, src);
+    if (ret)
+        goto fail;
+
+    v4l2request_detile_mt2110_plane(dst->data[0], dst->linesize[0], map->data[0],
+                                    pitch, dst->width, dst->height, 32, raster);
+    v4l2request_detile_mt2110_plane(dst->data[1], dst->linesize[1], map->data[1],
+                                    pitch, FFALIGN(dst->width, 2),
+                                    (dst->height + 1) / 2, 16, raster);
+fail:
+    av_frame_free(&map);
+    return ret;
+}
+#endif
+
 static int v4l2request_transfer_get_formats(AVHWFramesContext *hwfc,
                                             enum AVHWFrameTransferDirection dir,
                                             enum AVPixelFormat **formats)
@@ -1238,6 +1447,21 @@ static int v4l2request_transfer_get_formats(AVHWFramesContext *hwfc,
 
     fmts[0] = hwfc->sw_format;
     fmts[1] = AV_PIX_FMT_NONE;
+
+#if defined(V4L2_PIX_FMT_MM21) && defined(DRM_FORMAT_MOD_MTK_16L_32S_TILE)
+    if (v4l2request_is_mm21(hwfc)) {
+        fmts[0] = AV_PIX_FMT_NV12;
+        *formats = fmts;
+        return 0;
+    }
+#endif
+#if defined(V4L2_PIX_FMT_MT2110T) && defined(V4L2_PIX_FMT_MT2110R)
+    if (v4l2request_mt2110_pixelformat(hwfc)) {
+        fmts[0] = AV_PIX_FMT_P010;
+        *formats = fmts;
+        return 0;
+    }
+#endif
 
     if (hwfc->sw_format == AV_PIX_FMT_YUV420P ||
         hwfc->sw_format == AV_PIX_FMT_YUV420P10 ||
@@ -1256,6 +1480,23 @@ static int v4l2request_transfer_data_from(AVHWFramesContext *hwfc,
 
     if (dst->width > hwfc->width || dst->height > hwfc->height)
         return AVERROR(EINVAL);
+
+#if defined(V4L2_PIX_FMT_MM21) && defined(DRM_FORMAT_MOD_MTK_16L_32S_TILE)
+    if (v4l2request_is_mm21(hwfc)) {
+        if (dst->format != AV_PIX_FMT_NV12)
+            return AVERROR(ENOSYS);
+        return v4l2request_transfer_mm21(hwfc, dst, src);
+    }
+#endif
+#if defined(V4L2_PIX_FMT_MT2110T) && defined(V4L2_PIX_FMT_MT2110R)
+    if (v4l2request_mt2110_pixelformat(hwfc)) {
+        if (dst->format != AV_PIX_FMT_P010)
+            return AVERROR(ENOSYS);
+        return v4l2request_transfer_mt2110(hwfc, dst, src,
+                                           v4l2request_mt2110_pixelformat(hwfc) ==
+                                           V4L2_PIX_FMT_MT2110R);
+    }
+#endif
 
     map = av_frame_alloc();
     if (!map)
